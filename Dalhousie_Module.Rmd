@@ -1,0 +1,175 @@
+---
+title: "Genomic tools for fisheries analysis in R"
+author: "Nick Jeffery; Brendan Wringe; Ryan Stanley"
+date: "February 21, 2018"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE,message=FALSE)
+```
+
+## Population Clustering 
+***
+#### First we are going to run our genepop file through some basic clustering methods to look at poplation structure.
+#### Load the libraries first.
+
+```{r load_packages, include=FALSE}
+library(knitr)
+library(devtools)
+library(genepopedit)
+library(pcadapt)
+library(diveRsity)
+library(randomForest)
+library(ggplot2)
+library(adegenet)
+library(qvalue)
+```
+
+Now load the genepop file into adegenet and run a Principal Component Analysis (PCA)
+
+```{r PCA, echo=FALSE}
+#First we'll read in our genepop file. ncode=3 in the options here because we have 3 numbers coding for one alleles in the document. 
+crabgen<-read.genepop(file = "C:/Users/JefferyN/Desktop/Postdoc/Green_Crab/RAD/Crab_Genepop_EnvOutliers.gen",ncode = 3,quiet = F)
+####Do a PCA first of all the pops#####  
+#Scale the data for PCA
+crabpcadat<-scaleGen(crabgen,NA.method="zero")
+
+CrabPCA<-dudi.pca(crabpcadat,scannf = F,nf = 3)
+#temp<-as.integer(pop(samdat))
+scatter(CrabPCA)
+#plot(baselinepca$li)
+#textplot(baselinepca$li[,1],baselinepca$li[,2],words=rownames(sampcadat))
+s.class(CrabPCA$li,pop(crabgen),col=funky(11),cstar = 1,cpoint = 3,grid=FALSE)
+add.scatter.eig(CrabPCA$eig[1:3],3,1,2)
+
+CrabPCA$eig[1]/sum(CrabPCA$eig)
+CrabPCA$eig[2]/sum(CrabPCA$eig)
+
+#sort(CrabPCA$li$Axis1,decreasing = T)
+
+```
+#### This last line of code says that PC1 accounts for 24.4% of the variance, and PC2 accounts for 8.5%. 
+
+### Now we'll try the adegenet snapclust function. First we give it a range of values for K to test.
+#### The value with the lowest AIC is best. 
+
+```{r}
+
+a.aic<-snapclust.choose.k(max = 11,crabgen)
+plot(1:11, a.aic, xlab = "Number of clusters (k)",
+     ylab = "AIC", type = "b", pch = 20, cex = 3)
+
+
+#a.kic <- snapclust.choose.k(max = 11, crabgen, IC = KIC)
+#plot(1:11, a.kic, xlab = "Number of clusters (k)",
+#     ylab = "KIC", type = "b", pch = 20, cex = 3)
+
+```
+
+
+### Because we know from other methods that green crab are best described by K=2, we'll just go with that. 
+### Here's a compoplot of the snapclust results. The x-axis should have the individuals in the same order as the genepop file. 
+
+```{r}
+bestK<-snapclust(crabgen,k = 2,pop.ini = "kmeans")
+compoplot(bestK, col=c("darkblue","firebrick1"),txt.leg=c("North","South"))
+#names(bestK)
+
+```
+
+
+## Now that we've finished some basic clustering using two methods we'll move into some data manipulation and checking. 
+*****
+
+
+GENEPOPEDIT STUFF CAN GO HERE
+
+
+### Now we'll try the R package PCAdapt to select outlier loci, as well as Random Forest
+****
+
+#### PCAdapt first
+
+```{r}
+craballsnps<-read.pcadapt(input.filename = "C:/Users/JefferyN/Desktop/Postdoc/Green_Crab/RAD/PCADAPT/Crab_RAD.ped",type = "ped")
+crabpcadapt<- pcadapt(input = "C:/Users/JefferyN/Desktop/Postdoc/Green_Crab/RAD/PCADAPT/crab_RAD.pcadapt",method = "mahalanobis",data.type = "genotype",K=20)
+plot(crabpcadapt)
+plot(crabpcadapt,option="stat.distribution")
+poplist<-c(rep(1,22),rep(2,22),rep(3,22),rep(4,22),rep(5,21),rep(6,22),rep(7,22),
+           rep(8,22),rep(9,22),rep(10,22),rep(11,22))
+print(poplist)
+plot(crabpcadapt,option="scores",pop=poplist)
+```
+
+#### Now detect the outliers
+```{r}
+qval <- qvalue(crabpcadapt$pvalues)$qvalues
+alpha <- 0.05
+outliers <- which(qval<alpha)
+print(outliers)
+length(outliers)
+
+
+plot(crabpcadapt,option="qqplot",threshold=0.01)
+
+hist(crabpcadapt$pvalues,xlab="p-values",main=NULL,breaks=50)
+```
+
+
+#### Now Random Forest
+
+```{r}
+set.seed(200)
+#This ped file needs the map file locus names transposed on top of it, so it's essentially a square data frame
+unsorted<-as.data.frame(read.table("C:/Users/JefferyN/Desktop/Postdoc/Green_Crab/RAD/PCADAPT/Crab_Example_PED.txt", sep="\t", header=F))
+#View(unsorted)
+#Get the POPIDs in the first column
+POPID<-unsorted[,1]
+
+#Data actually starts at column 7
+f<-unsorted[,7:ncol(unsorted)]
+features<-as.matrix(apply(f, MARGIN=2, FUN=function(x) as.numeric(x)))
+
+#rewriting 1-4 as 0 and 1 within each column (2)
+change<-function(x) {
+  occur<-as.data.frame(sort(table(x),decreasing=TRUE))
+  x[x==as.numeric(rownames(occur)[1])]<-1
+  x[x==as.numeric(rownames(occur)[2])]<-0
+  x
+}
+rewrite<-apply(features, 2, FUN=change)
+paired<-rewrite[,order(colnames(rewrite))]
+
+#combining columns into proper single feature so 0/0=0 0/1=0.5 and 1/1=1
+oddindex<-c(((1:(ncol(paired)/2))*2-1))
+evenindex<-c(((1:(ncol(paired)/2))*2))
+
+even<-paired[,evenindex]
+odd<-paired[,oddindex]
+new<-(odd+even)/2
+colnames(new)<-substring(colnames(new),first=1, last=11)#this removes the ".1" that ends up at the end of my row/locus names
+
+#imputing and running RF- can take quite a while!
+#imputed<-rfImpute(new, POPID, iter=4, ntree=500)
+#imputedfeatures<-imputed[,-1]
+loci.rf<-randomForest(new, POPID, ntree=100, replace=FALSE, nodesize=10, importance=TRUE, proximity=TRUE, do.trace=10)
+
+```
+
+
+Now get the loci ranked by their importance
+
+```{r}
+#getting top feature hits from importance measure (mean decrease in accuracy(MDA))
+select<-as.data.frame(importance(loci.rf, type=1))
+MDA<-select[,1]
+loci<-rownames(select)
+bind<-as.data.frame(cbind(loci,MDA))
+select2<-bind[order(-MDA),]
+View(select2)
+```
+

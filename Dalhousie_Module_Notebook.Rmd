@@ -1,0 +1,373 @@
+---
+title: "Genomic tools for fisheries analysis in R"
+author: "Nick Jeffery; Brendan Wringe; Ryan Stanley"
+date: "February 21, 2018"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE,message=FALSE)
+```
+
+## Population Clustering 
+***
+#### First we are going to run our genepop file through some basic clustering methods to look at poplation structure.
+
+
+#### Load the libraries first.
+```{r load_packages, message=FALSE}
+library(knitr)
+library(devtools)
+library(genepopedit)
+library(pcadapt)
+library(diveRsity)
+library(randomForest)
+library(ggplot2)
+library(adegenet)
+library(qvalue)
+```
+
+Load the genepop file into the workspace. ncode=3 in the options here because we have 3 numbers coding for one alleles in the document. 
+```{r Load Data}
+crabgen<-read.genepop(file = "Crab_Genepop_EnvOutliers.gen",ncode = 3,quiet = F)
+```
+
+Show information about the data we have entered
+```{r}
+crabgen
+```
+
+##### Questions 1:
+
+1) How many individuals are there?
+2) How many loci?
+3) How would you look at the genotype of an individuals
+
+
+Scale the data to prepare for PCA
+```{r}
+crabpcadat<-scaleGen(crabgen,NA.method="zero")
+```
+
+##### Questions 2:
+
+4) Why do we scale the data?
+
+Do a PCA
+```{r}
+CrabPCA<-dudi.pca(crabpcadat,scannf = F,nf = 3)
+```
+
+
+Plot the PCA
+```{r}
+scatter(CrabPCA)
+```
+
+Doesn't look so good 
+
+
+Let's plot it a different way!
+```{r}
+s.class(CrabPCA$li,pop(crabgen),col=funky(11),cstar = 1,cpoint = 3,grid=FALSE)
+add.scatter.eig(CrabPCA$eig[1:3],3,1,2)
+```
+
+Show the proportion of the total variance the first PC accounts for
+```{r}
+CrabPCA$eig[1]/sum(CrabPCA$eig)
+```
+
+Show the proportion of the total variance the second PC accounts for
+```{r}
+CrabPCA$eig[2]/sum(CrabPCA$eig)
+```
+
+##### Questions 3:
+
+5) If you were to group the populations into two groups, what would those be?
+6) How would you go about returning the PC values for indivuduals?
+
+### Now we'll try the adegenet snapclust function. First we give it a range of values for K to test.
+#### Note: The value with the lowest AIC is best. 
+
+Get AIC
+```{r}
+a.aic<-snapclust.choose.k(max = 11,crabgen)
+```
+
+Show the AICs
+```{r}
+a.aic
+```
+
+Plot them
+```{r}
+plot(1:11, a.aic, xlab = "Number of clusters (k)",
+     ylab = "AIC", type = "b", pch = 20, cex = 3)
+```
+
+##### Questions 4:
+
+7) What do these AIC values imply to you (Are there likely to be statistically signficant differences among them)?
+8) Is this likely the best tool to use to separate these populations?
+
+### Because we know from other methods that green crab are best described by K=2, we'll just go with that. 
+
+Use snapClust to get the .... (NICK FILL THIS IN!)
+```{r}
+bestK<-snapclust(crabgen,k = 2,pop.ini = "kmeans")
+```
+
+This will make a really big data frame showing the proportion assignment of each individual into each of the two groupings
+```{r}
+compoplot(bestK, col=c("darkblue","firebrick1"),txt.leg=c("North","South"))
+```
+
+# IT'S TIME FOR GENEPOPEDIT!!!!!
+
+One of the useful tools in genepopedit is that you can easily check the metadata of a genepop file (Populations, Individual names, loci names, allele values, and counts of individuals in populations)
+
+Check what populations are in the genepop file you have been given
+```{r}
+genepop_detective(genepop = "crabGP_Fixed.txt", variable = "Pops")
+```
+
+##### Questions 4:
+
+9) Show the allele names in the supplied genepop file
+10) Show the number of individuals in each population
+
+## Geneopopedit can also be used to modify genepopfiles (e.g. subset individuals, populations, loci, etc.)
+
+Separate the groups we have now into "North" and "South" groupings
+```{r}
+subset_genepop_aggregate(genepop = "crabGP_Fixed.txt", agpopframe = data.frame(old = c("BDB", "BRN", "CBI", "CLH", "KJI", "MBO", "NWH", "PLB", "SGB", "SYH", "TKT"), new = c("NTH", "NTH","NTH","NTH","NTH","NTH","STH","STH","STH","STH","STH")), path = "crabGP_Fixed_North_South.txt")
+```
+
+This has separated it into the two populations and aggregated them together - unfortunately, it hasn't renamed the populations - take a look!
+
+Show populations now
+```{r}
+genepop_detective(genepop = "crabGP_Fixed_North_South.txt", variable = "Pops")
+```
+
+RENAME THEM! - hint, just reuse the same data frame you used for aggregating
+```{r}
+subset_genepop_rename(genepop = "crabGP_Fixed_North_South.txt", nameframe = data.frame(old = c("BDB", "BRN", "CBI", "CLH", "KJI", "MBO", "NWH", "PLB", "SGB", "SYH", "TKT"), new = c("NTH", "NTH","NTH","NTH","NTH","NTH","STH","STH","STH","STH","STH")), renumber = TRUE, path = "crabGP_Fixed_North_South_RENAMED.txt")
+```
+
+Check that they are renamed
+```{r}
+genepop_detective(genepop = "crabGP_Fixed_North_South_RENAMED.txt", variable = "Pops")
+```
+
+Looks good
+
+##### Questions 5:
+
+11) Why did we rename the genepop files each time?
+12) Are the correct number of individuals in NTH and STH?
+13) Drop indivduals 1, 5, 20 from NTH and 6 and 34 from STH
+14) Drop alleles 100, 200:225 and 2449 from the genepop file
+
+Now a quick example of the ability of genepopedit to convert genepop files to other formats
+
+
+Make a newhybrids file
+```{r}
+genepop_newhybrids(genepop = "crabGP_Fixed.txt", path = "crabGP_Fixed_NH.txt")
+```
+
+
+Make a structure file 
+#(EVERYONE LOVES STRUCTURE!!!!!)
+```{r}
+genepop_structure(genepop = "crabGP_Fixed.txt", path = "crabGP_Fixed_STRUCUTURE.txt")
+```
+
+
+##### Questions 6:
+
+15) what other file formats can genepopedit convert to?
+16) What other file formats should Ryan make genepopedit able to convert to
+17) Convert the "crabGP_Fixed.txt" genepop file to another format of your choice
+
+# Finding and Selecting Outlier Loci
+
+### Now we'll try the R package PCAdapt to select outlier loci, as well as Random Forest
+****
+
+#### PCAdapt first
+
+PCAdapt needs ped files (we have made them for you because ... it's easier this way I guess)
+
+Read the ped file into the workspace
+```{r}
+craballsnps<-read.pcadapt(input.filename = "Crab_RAD.ped",type = "ped")
+```
+
+Read the genotypes associated with this ped file in
+```{r}
+crabpcadapt<- pcadapt(input = "crab_RAD.pcadapt",method = "mahalanobis",data.type = "genotype",K=20)
+```
+
+### Now -> Let's do some plots 
+# (IT IS ALWAYS A GOOD IDEA TO LOOK AT YOUR DATA!!!!)
+
+
+Start with a Manhattan plot
+```{r}
+plot(crabpcadapt)
+```
+
+##### Questions 6:
+
+18) What does this plot tell you?
+19) The x-axis is currently order only by loci number, how could you improve it such that it provided more useful information?
+
+
+
+NICK WHAT IS THIS PLOTTING EXACTLY - histogram of the p-value?
+```{r}
+plot(crabpcadapt,option="stat.distribution")
+```
+
+Number individuals according to which population they belong to - this will let us colour the following plot
+```{r}
+poplist<-c(rep(1,22),rep(2,22),rep(3,22),rep(4,22),rep(5,21),rep(6,22),rep(7,22),
+           rep(8,22),rep(9,22),rep(10,22),rep(11,22))
+print(poplist)
+```
+
+Plot individuals according to their PC1 and PC2 scores, colour by popuation
+```{r}
+plot(crabpcadapt,option="scores",pop=poplist)
+```
+
+
+#### Now detect the outliers
+
+use the qvalue package to convert the p-values produced by PCAdapt to q-values using the function qvalue. q-values account and are ajusted for multiple hypothesis testing
+
+```{r}
+qval <- qvalue(crabpcadapt$pvalues)$qvalues
+```
+
+##### Questions 7:
+
+20) Why is it important to account for multiple hypothesis testing?
+21) Show the p-value and associated q-value for the first 10 indivdiuals
+
+Set the alpha to 0.05 (pretty pedestrian)
+```{r}
+alpha <- 0.05
+```
+
+Outliers are thus loci who's q-value is less than the alpha
+```{r}
+outliers <- which(qval<alpha)
+```
+
+##### Questions 8:
+
+22) How many outlier loci are there?
+23) Print the outliers to the screen
+
+NICK - why are we plotting this and why is the threshold 0.01? 
+```{r}
+plot(crabpcadapt,option="qqplot",threshold=0.01)
+```
+
+Plot a histogram of the p-values
+```{r}
+hist(crabpcadapt$pvalues,xlab="p-values",main=NULL,breaks=50)
+```
+
+
+##### Questions 9:
+
+24) Plot a histogram of the q-values
+25) How do the q-values compare to the p-values and why?
+
+### Let's get lost in a random forest!
+
+Since this is a random process, lets set the seed that will be used
+```{r}
+set.seed(200)
+```
+
+##### Questions 10:
+
+26) Why do we set the seed?
+
+Load in the ped file we loaded earlier - rename so as not to overwrite what has been done
+```{r}
+unsorted<-as.data.frame(read.table("Crab_Example_PED.txt", sep="\t", header=F))
+```
+
+This ped file needs the map file locus names transposed on top of it, so it's essentially a square data frame
+
+```{r}
+POPID<-unsorted[,1]
+```
+
+Data actually starts at column 7 - remove all columns before 7
+```{r}
+f<-unsorted[,7:ncol(unsorted)]
+```
+
+Transform into a matrix
+```{r}
+features<-as.matrix(apply(f, MARGIN=2, FUN=function(x) as.numeric(x)))
+```
+
+SNPs are binary, but here they have coded according to the base they represent. Convert to strictly binary (0, 1)
+rewriting 1-4 as 0 and 1 within each column (2) - FUNCTION
+```{r}
+change<-function(x) {
+  occur<-as.data.frame(sort(table(x),decreasing=TRUE))
+  x[x==as.numeric(rownames(occur)[1])]<-1
+  x[x==as.numeric(rownames(occur)[2])]<-0
+  x
+}
+rewrite<-apply(features, 2, FUN=change)
+paired<-rewrite[,order(colnames(rewrite))]
+
+#combining columns into proper single feature so 0/0=0 0/1=0.5 and 1/1=1
+oddindex<-c(((1:(ncol(paired)/2))*2-1))
+evenindex<-c(((1:(ncol(paired)/2))*2))
+
+even<-paired[,evenindex]
+odd<-paired[,oddindex]
+new<-(odd+even)/2
+colnames(new)<-substring(colnames(new),first=1, last=11)#this removes the ".1" that ends up at the end of my row/locus names
+```
+
+NICK - can you please explain the options etc. here?
+```{r}
+loci.rf<-randomForest(new, POPID, ntree=100, replace=FALSE, nodesize=10, importance=TRUE, proximity=TRUE, do.trace=10)
+```
+
+#### Now get the loci ranked by their importance
+
+getting top feature hits from importance measure (mean decrease in accuracy(MDA))
+```{r}
+select<-as.data.frame(importance(loci.rf, type=1))
+```
+
+
+Nick - can you explain this a bit?
+```{r}
+MDA<-select[,1]
+loci<-rownames(select)
+bind<-as.data.frame(cbind(loci,MDA))
+select2<-bind[order(-MDA),]
+View(select2)
+```
+
+NICK - can think up a question or two for here
+
+
+
+
