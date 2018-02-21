@@ -29,7 +29,7 @@ library(adegenet)
 library(qvalue)
 ```
 
-Now load the genepop file into adegenet and run a Principal Component Analysis (PCA)
+Now load the genepop file into adegenet and run a Principal Component Analysis (PCA).
 
 ```{r PCA, echo=FALSE}
 #First we'll read in our genepop file. ncode=3 in the options here because we have 3 numbers coding for one alleles in the document. 
